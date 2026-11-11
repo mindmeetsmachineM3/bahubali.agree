@@ -601,7 +601,7 @@ def audio_len(p):
 
 
 VOICE_PROVIDER = (os.getenv("VOICE_PROVIDER") or "sarvam").lower()   # sarvam | elevenlabs | edge
-SARVAM_F = os.getenv("SARVAM_FEMALE") or "anushka"
+SARVAM_F = os.getenv("SARVAM_FEMALE") or "ritu"
 SARVAM_M = os.getenv("SARVAM_MALE") or "abhilash"
 SARVAM_MODEL = os.getenv("SARVAM_MODEL") or "bulbul:v3"
 
