@@ -1,0 +1,46 @@
+name: Reply to comments (Marathi)
+
+# Twice a day: short, polite Marathi replies to new comments on our own posts (spam/politics/abuse are skipped).
+on:
+  schedule:
+    - cron: "30 5 * * *"
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: bharatnova-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+      IG_USER_ID: ${{ secrets.IG_USER_ID }}
+      IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python core.py --reply-comments
+      - name: Save replied ids
+        run: |
+          if [ -f replied.json ]; then
+            git config user.name "bharatnova-bot"
+            git config user.email "bharatnova-bot@users.noreply.github.com"
+            git add replied.json
+            if git diff --cached --quiet; then echo "nothing new"; else
+              git commit -m "state: replied comments"
+              git pull --rebase origin "${{ github.ref_name }}" || true
+              git push
+            fi
+          fi
