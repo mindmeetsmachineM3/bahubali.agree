@@ -51,6 +51,18 @@ jobs:
       VOICE_FEMALE: ${{ vars.VOICE_FEMALE }}
       VOICE_MALE: ${{ vars.VOICE_MALE }}
       VOICE_RATE: ${{ vars.VOICE_RATE }}
+      SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+      VOICE_PROVIDER: ${{ vars.VOICE_PROVIDER }}
+      SARVAM_FEMALE: ${{ vars.SARVAM_FEMALE }}
+      SARVAM_MALE: ${{ vars.SARVAM_MALE }}
+      SARVAM_MODEL: ${{ vars.SARVAM_MODEL }}
+      SARVAM_PACE: ${{ vars.SARVAM_PACE }}
+      TTS_PROVIDER: ${{ vars.TTS_PROVIDER }}
+      GEMINI_TTS_VOICE_F: ${{ vars.GEMINI_TTS_VOICE_F }}
+      GEMINI_TTS_VOICE_M: ${{ vars.GEMINI_TTS_VOICE_M }}
+      GEMINI_TTS_MODEL: ${{ vars.GEMINI_TTS_MODEL }}
+      GEMINI_TTS_STYLE_F: ${{ vars.GEMINI_TTS_STYLE_F }}
+      GEMINI_TTS_STYLE_M: ${{ vars.GEMINI_TTS_STYLE_M }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -85,10 +97,6 @@ jobs:
           KIND: ${{ steps.k.outputs.kind }}
           INPUT_TOPIC: ${{ inputs.topic }}
           INPUT_DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-          SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
-          VOICE_PROVIDER: sarvam
-          SARVAM_FEMALE: ritu
-          SARVAM_MALE: ashutosh
         run: |
           ARGS="--kind $KIND"
           if [ "$INPUT_DRY" = "true" ]; then ARGS="$ARGS --dry-run"; fi
