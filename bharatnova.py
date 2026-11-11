@@ -622,7 +622,8 @@ def _sarvam(text, gender, out):
               "model": SARVAM_MODEL, "pace": 1.0, "speech_sample_rate": 24000,
               "enable_preprocessing": True},
         timeout=60)
-    r.raise_for_status()
+        if not r.ok:
+        raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
     Path(out).write_bytes(base64.b64decode(r.json()["audios"][0]))
 
 
