@@ -619,7 +619,7 @@ def _sarvam(text, gender, out):
         headers={"api-subscription-key": os.environ["SARVAM_API_KEY"], "Content-Type": "application/json"},
         json={"text": text, "target_language_code": "mr-IN",
               "speaker": SARVAM_M if gender == "M" else SARVAM_F,
-              "model": SARVAM_MODEL, "pace": 1.0, "speech_sample_rate": 24000,
+              "model": SARVAM_MODEL, "pace": 0.92, "speech_sample_rate": 24000,"temperature": 0.6,
               "enable_preprocessing": True},
         timeout=60)
     if not r.ok:
