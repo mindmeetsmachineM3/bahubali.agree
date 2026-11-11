@@ -88,7 +88,7 @@ jobs:
           SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
           VOICE_PROVIDER: sarvam
           SARVAM_FEMALE: ritu
-          SARVAM_MALE: aditya
+          SARVAM_MALE: ashutosh
         run: |
           ARGS="--kind $KIND"
           if [ "$INPUT_DRY" = "true" ]; then ARGS="$ARGS --dry-run"; fi
