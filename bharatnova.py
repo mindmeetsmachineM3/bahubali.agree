@@ -36,7 +36,7 @@ try:
 except Exception:
     pass
 
-VERSION = "bharatnova v1 (Marathi, green/gold theme, Ken Burns zoom, F+M voices)"
+VERSION = "bharatnova v2 (Marathi, Sarvam/Gemini/edge voices, Devanagari voice text, Ken Burns zoom)"
 BASE = Path(__file__).parent
 OUT_DIR = BASE / "output"
 ASSETS = BASE / "assets"
@@ -587,10 +587,6 @@ class ReelPainter:
 
 
 # ------------------------------------------------------------------ voice
-def _find_ffmpeg():
-    return "ffmpeg"
-
-
 def _run(cmd):
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
@@ -600,56 +596,19 @@ def audio_len(p):
     return float(out.stdout.strip() or 0)
 
 
-VOICE_PROVIDER = (os.getenv("VOICE_PROVIDER") or "sarvam").lower()   # sarvam | elevenlabs | edge
-SARVAM_F = os.getenv("SARVAM_FEMALE") or "ritu"
-SARVAM_M = os.getenv("SARVAM_MALE") or "ashutosh"
-SARVAM_MODEL = os.getenv("SARVAM_MODEL") or "bulbul:v3"
-
-
 async def _tts(text, voice, out):
     import edge_tts
     await edge_tts.Communicate(text, voice, rate=VOICE_RATE).save(str(out))
 
 
-def _sarvam(text, gender, out):
-    import base64
-    import requests
-    r = requests.post(
-        "https://api.sarvam.ai/text-to-speech",
-        headers={"api-subscription-key": os.environ["SARVAM_API_KEY"], "Content-Type": "application/json"},
-        json={"text": text, "target_language_code": "mr-IN",
-              "speaker": SARVAM_M if gender == "M" else SARVAM_F,
-              "model": SARVAM_MODEL, "pace": 0.92, "speech_sample_rate": 24000,"temperature": 0.6,
-              "enable_preprocessing": True},
-        timeout=60)
-    if not r.ok:
-        raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
-    Path(out).write_bytes(base64.b64decode(r.json()["audios"][0]))
-
-def _eleven(text, gender, out):
-    import requests
-    vid = os.environ["ELEVEN_VOICE_M"] if gender == "M" else os.environ["ELEVEN_VOICE_F"]
-    r = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=mp3_44100_128",
-        headers={"xi-api-key": os.environ["ELEVEN_API_KEY"]},
-        json={"text": text, "model_id": os.getenv("ELEVEN_MODEL") or "eleven_v3"},
-        timeout=90)
-    r.raise_for_status()
-    Path(out).write_bytes(r.content)
+def tts_text(say):
+    """Clean the sentence for the voice: pauses stay, symbols that sound robotic go."""
+    t = re.sub(r"\s*(?:[—–|]| - )\s*", ", ", str(say))
+    t = re.sub(r"\s+", " ", t).strip()
+    return t if re.search(r"[.!?।…]$", t) else t + "."
 
 
-def speak(text, gender, out):
-    # 1) chosen provider (2 tries), 2) Edge fallback
-    if VOICE_PROVIDER in ("sarvam", "elevenlabs"):
-        fn = _sarvam if VOICE_PROVIDER == "sarvam" else _eleven
-        for _ in range(2):
-            try:
-                fn(text, gender, out)
-                if Path(out).exists() and Path(out).stat().st_size > 800:
-                    return VOICE_PROVIDER + ":" + (SARVAM_M if gender == "M" else SARVAM_F if VOICE_PROVIDER == "sarvam" else "voice")
-            except Exception as ex:
-                print(f"{VOICE_PROVIDER} failed: {str(ex)[:150]}", file=sys.stderr)
-                time.sleep(2)
+def speak_edge(text, gender, out):
     prim = VOICE_M if gender == "M" else VOICE_F
     backup = ["hi-IN-MadhurNeural"] if gender == "M" else ["hi-IN-SwaraNeural"]
     for voice in [prim, prim] + backup:
@@ -658,24 +617,199 @@ def speak(text, gender, out):
             if Path(out).exists() and Path(out).stat().st_size > 800:
                 return voice
         except Exception as ex:
-            print(f"voice {voice} failed: {str(ex)[:150]}", file=sys.stderr)
+            print(f"edge voice {voice} failed: {str(ex)[:150]}", file=sys.stderr)
             time.sleep(2)
-    raise RuntimeError("no voice could be generated")
+    raise RuntimeError("edge-tts: no voice could be generated")
+
+
+# ---- Gemini TTS (free tier): much more natural than edge-tts. Natural-language style prompt controls the acting.
+TTS = (os.getenv("TTS_PROVIDER") or "gemini").lower()               # gemini | edge
+GTTS_VOICE = {"F": os.getenv("GEMINI_TTS_VOICE_F") or "Sulafat", "M": os.getenv("GEMINI_TTS_VOICE_M") or "Charon"}
+GTTS_SAFE = {"F": "Kore", "M": "Charon"}                            # used if the chosen voice name is rejected
+GTTS_MODELS = [m for m in dict.fromkeys([os.getenv("GEMINI_TTS_MODEL") or "", "gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]) if m]
+GTTS_LEGACY = ["gemini-2.5-flash-preview-tts"]
+GTTS_STYLE = {
+    "F": os.getenv("GEMINI_TTS_STYLE_F") or "warm, friendly and natural Marathi as spoken in Maharashtra, like a caring village agriculture tai talking to farmers; "
+                                           "relaxed medium pace, small natural pauses at commas, gentle smile in the voice, never robotic or newsreader-like",
+    "M": os.getenv("GEMINI_TTS_STYLE_M") or "calm, friendly and natural Marathi as spoken in Maharashtra, like an experienced farmer dada talking to fellow farmers; "
+                                           "relaxed medium pace, natural pauses at commas, sincere and conversational, never robotic or newsreader-like",
+}
+G_API = "https://generativelanguage.googleapis.com/v1beta"
+
+
+def _find_audio(o):
+    if isinstance(o, dict):
+        if o.get("type") == "audio" and isinstance(o.get("data"), str):
+            return o["data"]
+        for k in ("inlineData", "inline_data"):
+            if isinstance(o.get(k), dict) and isinstance(o[k].get("data"), str):
+                return o[k]["data"]
+        for v in o.values():
+            r = _find_audio(v)
+            if r:
+                return r
+    elif isinstance(o, list):
+        for v in reversed(o):
+            r = _find_audio(v)
+            if r:
+                return r
+    return None
+
+
+def _save_audio(b64, out):
+    import base64
+    import wave
+    raw = base64.b64decode(b64)
+    if raw[:4] == b"RIFF":
+        Path(out).write_bytes(raw)
+    else:                                                            # raw 24 kHz 16-bit mono PCM
+        with wave.open(str(out), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(24000)
+            w.writeframes(raw)
+
+
+def gemini_tts(text, gender, out):
+    import requests
+    hdr = {"x-goog-api-key": os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"}
+    voice, style = GTTS_VOICE[gender], GTTS_STYLE[gender]
+    errs, deadline = [], time.time() + 240
+    for model in GTTS_MODELS + GTTS_LEGACY:
+        legacy = "2.5" in model
+        for attempt in range(4):
+            if time.time() > deadline:
+                raise RuntimeError("Gemini TTS: out of time | " + " | ".join(errs[-3:]))
+            try:
+                if legacy:
+                    r = requests.post(f"{G_API}/models/{model}:generateContent", headers=hdr, timeout=180, json={
+                        "contents": [{"parts": [{"text": f"Say in a {style} tone: {text}"}]}],
+                        "generationConfig": {"responseModalities": ["AUDIO"],
+                                             "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}})
+                else:
+                    r = requests.post(f"{G_API}/interactions", headers=hdr, timeout=120, json={
+                        "model": model,
+                        "input": [{"type": "user_input", "content": [{"type": "text", "text": text,
+                                   "annotations": [{"type": "speech_metadata", "style": style}]}]}],
+                        "response_format": {"type": "audio"},
+                        "generation_config": {"speech_config": [{"voice": voice}]}})
+            except requests.RequestException as ex:
+                errs.append(f"{model}: network {str(ex)[:80]}")
+                time.sleep(5)
+                continue
+            if r.ok:
+                try:
+                    data = _find_audio(r.json())
+                except Exception:
+                    data = None
+                if data:
+                    _save_audio(data, out)
+                    return f"gemini-tts:{voice}"
+                errs.append(f"{model}: reply had no audio")
+                break
+            errs.append(f"{model}: {r.status_code} {r.text[:110]}")
+            print(f"Gemini TTS {model}: {r.status_code}", file=sys.stderr)
+            if r.status_code == 400 and re.search(r"voice", r.text, re.I) and voice != GTTS_SAFE[gender]:
+                voice = GTTS_SAFE[gender]                              # this voice name does not exist for the key: use a safe one
+                continue
+            if r.status_code == 429:
+                if re.search(r"PerDay|per day|daily|limit: 0", r.text, re.I):
+                    break
+                time.sleep(min(60, 20 * (attempt + 1)))
+                continue
+            if r.status_code in (500, 502, 503, 504):
+                time.sleep(8)
+                continue
+            break
+    raise RuntimeError("Gemini TTS failed: " + " | ".join(errs[-4:]))
+
 
 _TRIM = ("silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.04,areverse,"
          "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.04,areverse")
 
 
+# ---- Sarvam (Bulbul): built for Indian languages, natural Marathi (mr-IN). Needs SARVAM_API_KEY (paid after the signup credits).
+SARVAM_F = os.getenv("SARVAM_FEMALE") or "ritu"
+SARVAM_M = os.getenv("SARVAM_MALE") or "ashutosh"
+SARVAM_MODEL = os.getenv("SARVAM_MODEL") or "bulbul:v3"
+SARVAM_PACE = float(os.getenv("SARVAM_PACE") or 0.95)
+
+
+def sarvam_tts(text, gender, out):
+    import base64
+    import requests
+    speaker = SARVAM_M if gender == "M" else SARVAM_F
+    body = {"text": text, "target_language_code": "mr-IN", "speaker": speaker, "model": SARVAM_MODEL,
+            "pace": SARVAM_PACE, "speech_sample_rate": 24000}
+    extras = {"temperature": 0.6, "enable_preprocessing": True}          # not every model version accepts these: dropped on a 400/422
+    use_extras, err = True, ""
+    for attempt in range(4):
+        r = requests.post("https://api.sarvam.ai/text-to-speech",
+                          headers={"api-subscription-key": os.environ["SARVAM_API_KEY"], "Content-Type": "application/json"},
+                          json={**body, **(extras if use_extras else {})}, timeout=90)
+        if r.ok:
+            Path(out).write_bytes(base64.b64decode(r.json()["audios"][0]))
+            return f"sarvam:{speaker}"
+        err = f"{r.status_code}: {r.text[:250]}"
+        print(f"Sarvam {err}", file=sys.stderr)
+        if r.status_code in (400, 422) and use_extras:
+            use_extras = False
+            continue
+        if r.status_code in (429, 500, 502, 503, 504):
+            time.sleep(6 * (attempt + 1))
+            continue
+        break
+    raise RuntimeError("Sarvam " + err)
+
+
+def eleven_tts(text, gender, out):
+    import requests
+    vid = os.environ["ELEVEN_VOICE_M"] if gender == "M" else os.environ["ELEVEN_VOICE_F"]
+    r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=mp3_44100_128",
+                      headers={"xi-api-key": os.environ["ELEVEN_API_KEY"]},
+                      json={"text": text, "model_id": os.getenv("ELEVEN_MODEL") or "eleven_v3"}, timeout=90)
+    r.raise_for_status()
+    Path(out).write_bytes(r.content)
+    return "elevenlabs"
+
+
+PROVIDERS = {"sarvam": (sarvam_tts, "wav", 0.5), "elevenlabs": (eleven_tts, "mp3", 0.5), "gemini": (gemini_tts, "wav", 3.0), "edge": (speak_edge, "mp3", 0)}
+
+
+def provider_chain():
+    first = (os.getenv("VOICE_PROVIDER") or os.getenv("TTS_PROVIDER") or ("sarvam" if os.getenv("SARVAM_API_KEY") else "gemini")).lower()
+    first = first if first in PROVIDERS else "gemini"
+    return [first] + [p for p in ("gemini", "edge") if p != first]
+
+
+def _scene_raws(spec, tmp):
+    """One raw clip per scene from ONE provider (Sarvam > Gemini > edge by default). If a provider fails on any scene,
+    the whole video is redone with the next one, so the two voices never change halfway through a Reel."""
+    for prov in provider_chain():
+        fn, ext, gap = PROVIDERS[prov]
+        raws, names = [], set()
+        try:
+            for i, sc in enumerate(spec["scenes"]):
+                raw = tmp / f"r{i:02d}.{ext}"
+                names.add(fn(tts_text(sc["say"]), sc.get("voice", "F"), raw))
+                raws.append(raw)
+                time.sleep(gap)
+            return raws, ", ".join(sorted(names))
+        except Exception as ex:
+            print(f"VOICE PROVIDER {prov} FAILED -> next provider. Reason: {str(ex)[:300]}", file=sys.stderr)
+    raise RuntimeError("no voice could be generated")
+
+
 def build_audio(spec, tmp, fake=False):
-    durs, vlens, wavs, used = [], [], [], set()
+    durs, vlens, wavs = [], [], []
+    raws, vname = (None, "silent") if fake else _scene_raws(spec, tmp)
     for i, sc in enumerate(spec["scenes"]):
-        raw, t1, wav = tmp / f"r{i:02d}.mp3", tmp / f"t{i:02d}.wav", tmp / f"s{i:02d}.wav"
+        t1, wav = tmp / f"t{i:02d}.wav", tmp / f"s{i:02d}.wav"
         if fake:
             secs = max(2.6, len(sc["say"].split()) / 2.3)
             _run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", f"{secs:.2f}", str(t1)])
         else:
-            used.add(speak(sc["say"], sc.get("voice", "F"), raw))
-            _run(["ffmpeg", "-v", "error", "-y", "-i", str(raw), "-af", _TRIM, "-ar", "44100", "-ac", "1", str(t1)])
+            _run(["ffmpeg", "-v", "error", "-y", "-i", str(raws[i]), "-af", _TRIM, "-ar", "44100", "-ac", "1", str(t1)])
         vl = audio_len(t1)
         dur = max(2.6, vl + .15 + .40)
         _run(["ffmpeg", "-v", "error", "-y", "-i", str(t1), "-af", "adelay=150|150,apad", "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", str(wav)])
@@ -692,7 +826,7 @@ def build_audio(spec, tmp, fake=False):
         _run(["ffmpeg", "-v", "error", "-y", "-i", str(full), "-stream_loop", "-1", "-i", str(random.choice(music)), "-filter_complex",
               "[1:a]volume=0.10[m];[0:a][m]amix=inputs=2:duration=first:normalize=0", "-ar", "44100", str(mixed)])
         full = mixed
-    return durs, vlens, full, ", ".join(sorted(used)) or "silent"
+    return durs, vlens, full, vname
 
 
 def render_reel(spec, durs, vlens, audio, out_path, preview_dir=None):
@@ -910,12 +1044,15 @@ def pick_product(state, pid=""):
     return min(items, key=lambda x: counts[x["id"]])
 
 
-RULES = """भाषा आणि नियम:
-- "say" = आवाजातील वाक्य (8-20 शब्द), शुद्ध पण बोलचालीतील सोपी मराठी देवनागरीत; तांत्रिक शब्द (drip, NPK, pH) इंग्रजीतच ठेवा. 'तुम्ही' वापरा.
-- "voice" = "F" (स्त्री निवेदिका) किंवा "M" (पुरुष). संवाद शैली वापरा: M शेतकरी प्रश्न विचारतो / समस्या सांगतो, F उत्तर देते; थोडे बदल करा.
-- "head" = स्क्रीनवरील छोटे शीर्षक (जास्तीत जास्त 8 शब्द, मराठी); 1-2 मुख्य शब्द **दोन तारकांमध्ये** लिहा.
+RULES = """भाषा आणि नियम (आवाज नैसर्गिक वाटण्यासाठी हे सर्वात महत्त्वाचे):
+- "say" = आवाजातील वाक्य; संपूर्ण वाक्य शुद्ध देवनागरीत. लहान वाक्ये (8-14 शब्द). बोलल्यासारखी सोपी, रोजची मराठी (पुस्तकी नको). 'तुम्ही' वापरा.
+- इंग्रजी शब्द देवनागरीत लिहा, लॅटिन अक्षरे नकोत: drip = ड्रिप, NPK = एनपीके, pH = पीएच, spray = स्प्रे, mulching = मल्चिंग, bharatNova = भारतनोव्हा. उत्पादनाचे नाव दिलेल्या कंसातील मराठी रूपात लिहा.
+- अंक आणि चिन्हे नकोत: संख्या शब्दांत लिहा (पन्नास टक्के, पंधरा ते वीस दिवस, दोन ते तीन मिली). '%', '50', '2-3' असे काहीही नको.
+- नैसर्गिक थांब्यासाठी वाक्यात स्वल्पविराम (,) वापरा आणि गरज असेल तेव्हा '...' वापरा. डॅश (-, —) किंवा कंसातील वाक्ये नकोत.
+- "voice" = "F" (स्त्री निवेदिका) किंवा "M" (पुरुष). संवाद शैली: M शेतकरी प्रश्न विचारतो / समस्या सांगतो, F उत्तर देते; आलटून पालटून.
+- "head" = स्क्रीनवरील छोटे शीर्षक (जास्तीत जास्त 8 शब्द, मराठी); 1-2 मुख्य शब्द **दोन तारकांमध्ये** लिहा. (हे फक्त स्क्रीनसाठी; येथे अंक/इंग्रजी चालेल.)
 - "bg" = पार्श्वभूमीचा विषय एका इंग्रजी शब्दात: crops, soil, water, farm, fruits, vegetables, tractor, sunrise, product.
-- सर्व माहिती अचूक हवी. आकडे फक्त सर्वमान्य आणि "साधारणपणे / पर्यंत" सह; आकडे माहीत नसतील तर देऊ नका. खोटी आकडेवारी, सरकारी योजनांचे आकडे, बाजारभाव कधीही नको.
+- सर्व माहिती अचूक हवी. आकडे फक्त सर्वमान्य आणि "साधारणपणे / पर्यंत" सह; माहीत नसतील तर देऊ नका. खोटी आकडेवारी, सरकारी योजनांचे आकडे, बाजारभाव कधीही नको.
 - कीटकनाशक/रासायनिक खतांचे डोस किंवा नावे देऊ नका; गरज असल्यास "जवळच्या कृषी विज्ञान केंद्र / कृषी अधिकाऱ्याचा सल्ला घ्या" असे सांगा.
 - कोणताही राजकीय, धार्मिक किंवा जातीय उल्लेख नको."""
 
@@ -997,6 +1134,10 @@ def validate_reel(spec, ad=False):
         s["say"] = str(s.get("say", "")).strip()
         if not s["say"] or not _dev(s["say"]):
             raise ValueError(f"scene {i}: voice-over must be Marathi (Devanagari)")
+        if re.search(r"[A-Za-z0-9०-९%]", s["say"]):
+            raise ValueError(f"scene {i}: voice-over must have no Latin letters, digits or % (write English words and numbers in Devanagari words)")
+        if len(s["say"].split()) > 20:
+            raise ValueError(f"scene {i}: sentence too long for a natural voice ({len(s['say'].split())} words)")
         words += len(s["say"].split())
         s["voice"] = "M" if str(s.get("voice", "F")).upper().startswith("M") else "F"
         s["head"] = str(s.get("head") or "")
@@ -1057,7 +1198,7 @@ SAMPLE_REEL = {
          "visual": {"type": "stat", "value": "50", "unit": "%", "label": "पर्यंत पाण्याची बचत (पिकानुसार बदलते)"}},
         {"say": "पण एक चूक टाळा: फिल्टर साफ केला नाही तर ड्रिपर चोक होतात.", "voice": "M", "head": "ही **चूक** टाळा", "bg": "soil",
          "visual": {"type": "points", "items": ["फिल्टर नियमित साफ करा", "ड्रिपर चोक झालेत का तपासा", "पिकानुसार पाण्याचा वेळ ठरवा"]}},
-        {"say": "रोज अशी शेतीची माहिती हवी असेल, तर bharatNova ला फॉलो करा.", "voice": "F", "head": "रोज **शेती** ज्ञान", "bg": "sunrise",
+        {"say": "रोज अशी शेतीची माहिती हवी असेल, तर भारतनोव्हाला फॉलो करा.", "voice": "F", "head": "रोज **शेती** ज्ञान", "bg": "sunrise",
          "visual": {"type": "outro", "ask": "तुम्ही कोणत्या पिकाला ठिबक वापरता?"}},
     ],
     "caption": "उन्हाळ्यात पाणी कमी पडतंय का? 💧\nठिबक सिंचनात पाणी थेट मुळाशी दिलं जातं, त्यामुळे पाण्याची बचत होऊ शकते.\nफिल्टर नियमित साफ करा आणि ड्रिपर तपासत रहा.",
@@ -1068,11 +1209,11 @@ SAMPLE_AD = {
     "scenes": [
         {"say": "माती कडक झालीय आणि पिकाची वाढ मंदावलीय, असं होतंय का?", "voice": "M", "head": "माती **कडक** झालीय?", "bg": "soil",
          "visual": {"type": "hook", "icon": "sprout", "text": "मातीचं आरोग्य म्हणजे पिकाचं आरोग्य"}},
-        {"say": "यासाठी bharatNova घेऊन आलंय हे नमुना उत्पादन.", "voice": "F", "head": "bharatNova **नमुना** उत्पादन", "bg": "product",
+        {"say": "यासाठी भारतनोव्हा घेऊन आलंय, हे नमुना उत्पादन.", "voice": "F", "head": "bharatNova **नमुना** उत्पादन", "bg": "product",
          "visual": {"type": "product", "name": "नमुना उत्पादन", "image": "assets/products/germee.png", "benefits": ["पहिला फायदा", "दुसरा फायदा", "तिसरा फायदा"]}},
         {"say": "वापरण्याआधी लेबलवरील सूचना नक्की वाचा; परिणाम पिकानुसार बदलू शकतात.", "voice": "M", "head": "वापर **सूचना**", "bg": "farm",
          "visual": {"type": "points", "items": ["लेबल वाचा", "शिफारस केलेलं प्रमाण वापरा", "शंका असल्यास कृषी अधिकाऱ्यांना विचारा"]}},
-        {"say": "अधिक माहितीसाठी प्रोफाइलवरील लिंक पहा आणि bharatNova ला फॉलो करा.", "voice": "F", "head": "आजच **फॉलो** करा", "bg": "sunrise",
+        {"say": "अधिक माहितीसाठी प्रोफाइलवरील लिंक पहा, आणि भारतनोव्हाला फॉलो करा.", "voice": "F", "head": "आजच **फॉलो** करा", "bg": "sunrise",
          "visual": {"type": "outro", "ask": "तुम्हाला कोणत्या उत्पादनाची माहिती हवी?"}},
     ],
     "caption": "(नमुना) bharatNova चं नवीन उत्पादन.\nवापरण्याआधी लेबलवरील सूचना वाचा.", "comment_q": "तुम्हाला कोणत्या उत्पादनाची माहिती हवी?", "hashtags": ["#bharatnova"],
