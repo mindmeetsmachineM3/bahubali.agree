@@ -89,7 +89,15 @@ jobs:
 
       - name: Install ffmpeg
         if: ${{ !inputs.diagnose && steps.k.outputs.run == 'yes' }}
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+        timeout-minutes: 12
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            for i in 1 2 3; do
+              (timeout 150 sudo apt-get update -qq && timeout 300 sudo apt-get install -y -qq ffmpeg) && break
+              echo "apt attempt $i failed (network hiccup), retrying"; sleep 20
+            done
+          fi
+          ffmpeg -version | head -1
 
       - name: Make and post (the bot also adds one comment under the post)
         if: ${{ !inputs.diagnose && steps.k.outputs.run == 'yes' }}
