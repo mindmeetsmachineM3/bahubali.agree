@@ -85,6 +85,10 @@ jobs:
           KIND: ${{ steps.k.outputs.kind }}
           INPUT_TOPIC: ${{ inputs.topic }}
           INPUT_DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          VOICE_PROVIDER: sarvam
+          SARVAM_FEMALE: anushka
+          SARVAM_MALE: abhilash
         run: |
           ARGS="--kind $KIND"
           if [ "$INPUT_DRY" = "true" ]; then ARGS="$ARGS --dry-run"; fi
