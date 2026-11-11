@@ -614,7 +614,7 @@ async def _tts(text, voice, out):
 def _sarvam(text, gender, out):
     import base64
     import requests
-    r = requests.post(
+        r = requests.post(
         "https://api.sarvam.ai/text-to-speech",
         headers={"api-subscription-key": os.environ["SARVAM_API_KEY"], "Content-Type": "application/json"},
         json={"text": text, "target_language_code": "mr-IN",
@@ -622,7 +622,7 @@ def _sarvam(text, gender, out):
               "model": SARVAM_MODEL, "pace": 1.0, "speech_sample_rate": 24000,
               "enable_preprocessing": True},
         timeout=60)
-        if not r.ok:
+    if not r.ok:
         raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
     Path(out).write_bytes(base64.b64decode(r.json()["audios"][0]))
 
