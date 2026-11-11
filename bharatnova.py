@@ -600,12 +600,56 @@ def audio_len(p):
     return float(out.stdout.strip() or 0)
 
 
+VOICE_PROVIDER = (os.getenv("VOICE_PROVIDER") or "sarvam").lower()   # sarvam | elevenlabs | edge
+SARVAM_F = os.getenv("SARVAM_FEMALE") or "anushka"
+SARVAM_M = os.getenv("SARVAM_MALE") or "abhilash"
+SARVAM_MODEL = os.getenv("SARVAM_MODEL") or "bulbul:v2"
+
+
 async def _tts(text, voice, out):
     import edge_tts
     await edge_tts.Communicate(text, voice, rate=VOICE_RATE).save(str(out))
 
 
+def _sarvam(text, gender, out):
+    import base64
+    import requests
+    r = requests.post(
+        "https://api.sarvam.ai/text-to-speech",
+        headers={"api-subscription-key": os.environ["SARVAM_API_KEY"], "Content-Type": "application/json"},
+        json={"text": text, "target_language_code": "mr-IN",
+              "speaker": SARVAM_M if gender == "M" else SARVAM_F,
+              "model": SARVAM_MODEL, "pace": 1.0, "speech_sample_rate": 24000,
+              "enable_preprocessing": True},
+        timeout=60)
+    r.raise_for_status()
+    Path(out).write_bytes(base64.b64decode(r.json()["audios"][0]))
+
+
+def _eleven(text, gender, out):
+    import requests
+    vid = os.environ["ELEVEN_VOICE_M"] if gender == "M" else os.environ["ELEVEN_VOICE_F"]
+    r = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=mp3_44100_128",
+        headers={"xi-api-key": os.environ["ELEVEN_API_KEY"]},
+        json={"text": text, "model_id": os.getenv("ELEVEN_MODEL") or "eleven_v3"},
+        timeout=90)
+    r.raise_for_status()
+    Path(out).write_bytes(r.content)
+
+
 def speak(text, gender, out):
+    # 1) chosen provider (2 tries), 2) Edge fallback
+    if VOICE_PROVIDER in ("sarvam", "elevenlabs"):
+        fn = _sarvam if VOICE_PROVIDER == "sarvam" else _eleven
+        for _ in range(2):
+            try:
+                fn(text, gender, out)
+                if Path(out).exists() and Path(out).stat().st_size > 800:
+                    return VOICE_PROVIDER + ":" + (SARVAM_M if gender == "M" else SARVAM_F if VOICE_PROVIDER == "sarvam" else "voice")
+            except Exception as ex:
+                print(f"{VOICE_PROVIDER} failed: {str(ex)[:150]}", file=sys.stderr)
+                time.sleep(2)
     prim = VOICE_M if gender == "M" else VOICE_F
     backup = ["hi-IN-MadhurNeural"] if gender == "M" else ["hi-IN-SwaraNeural"]
     for voice in [prim, prim] + backup:
@@ -617,7 +661,6 @@ def speak(text, gender, out):
             print(f"voice {voice} failed: {str(ex)[:150]}", file=sys.stderr)
             time.sleep(2)
     raise RuntimeError("no voice could be generated")
-
 
 _TRIM = ("silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.04,areverse,"
          "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.04,areverse")
