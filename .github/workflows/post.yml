@@ -87,15 +87,14 @@ jobs:
         if: ${{ inputs.diagnose }}
         run: python core.py --diagnose
 
-      - name: Install ffmpeg
+      - name: Install ffmpeg (from PyPI, no apt mirror needed)
         if: ${{ !inputs.diagnose && steps.k.outputs.run == 'yes' }}
-        timeout-minutes: 12
+        timeout-minutes: 10
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1; then
-            for i in 1 2 3; do
-              (timeout 150 sudo apt-get update -qq && timeout 300 sudo apt-get install -y -qq ffmpeg) && break
-              echo "apt attempt $i failed (network hiccup), retrying"; sleep 20
-            done
+            pip install imageio-ffmpeg
+            FF="$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
+            sudo ln -sf "$FF" /usr/local/bin/ffmpeg
           fi
           ffmpeg -version | head -1
 
