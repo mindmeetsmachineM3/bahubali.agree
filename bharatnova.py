@@ -45,7 +45,8 @@ BRAND = os.getenv("BRAND_NAME") or "bharatNova"
 BRAND_MARK = (os.getenv("BRAND_MARK") or "bN")[:3]
 VOICE_F = os.getenv("VOICE_FEMALE") or "mr-IN-AarohiNeural"
 VOICE_M = os.getenv("VOICE_MALE") or "mr-IN-ManoharNeural"
-VOICE_RATE = os.getenv("VOICE_RATE") or "+0%"
+VOICE_RATE = os.getenv("VOICE_RATE") or "+8%"
+VOICE_SPEED = float(os.getenv("VOICE_SPEED") or 1.08)      # extra tempo applied to every clip (pitch preserved)
 W, H, FPS = 720, 1280, 30          # reel
 PW, PH = 1080, 1350                # post / carousel (4:5)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -320,22 +321,44 @@ def v_hook(img, d, v, t, S):
     icon(d, v.get("icon", "sprout"), cx, cy - R * .02, R * .72, col=A(WHITE), col2=GOLD)
     if v.get("text"):
         al = ease((t - .5) / .5)
-        panel(img, (50, 770, W - 50, 770 + 120), 26, A(DARK, .55 * al))
-        text_block(d, 80, 782, v["text"], "bold", 34, W - 160, A(CREAM, al), max_lines=2)
+        panel(img, (36, 760, W - 36, 760 + 128), 28, A(DARK, .62 * al), A(GOLD, .5 * al), 2)
+        text_mid(d, 70, 760 + 64, v["text"], "bold", 42, W - 140, A(CREAM, al), max_lines=2)
+
+
+ZT, ZB = 366, 886          # the visual zone between the headline and the spoken caption
+
+
+def block_h(d, text, kind, size, max_w, max_lines, lh=1.2):
+    """(final font size, number of lines) of a text block that shrinks to fit max_lines."""
+    toks = tokens(text)
+    while True:
+        lines, _ = layout(d, toks, font(kind, size), max_w)
+        if len(lines) <= max_lines or size <= 20:
+            return size, len(lines)
+        size -= 2
+
+
+def text_mid(d, x, cy, text, kind, size, max_w, col, max_lines=2, lh=1.2):
+    """text_block whose vertical centre is cy."""
+    sz, n = block_h(d, text, kind, size, max_w, max_lines, lh)
+    return text_block(d, x, cy - n * sz * lh / 2 - sz * .06, text, kind, size, max_w, col, max_lines=max_lines, lh=lh)
 
 
 def v_points(img, d, v, t, S):
     items = [str(x) for x in (v.get("items") or [])][:4]
-    y = 380
+    n = max(1, len(items))
+    gap = 20
+    ih = min(176, int((ZB - ZT - (n - 1) * gap) / n))
+    fs = 48 if n <= 2 else (44 if n == 3 else 40)
+    y = ZT + (ZB - ZT - (n * ih + (n - 1) * gap)) // 2
     for i, it in enumerate(items):
         a = r_(t, i)
-        if a <= 0:
-            continue
-        off = int((1 - a) * 90)
-        panel(img, (46 + off, y, W - 46 + off, y + 112), 28, A(DARK, .62 * a), A(GOLD, .8 * a), 2)
-        check(d, 100 + off, y + 56, 24, A(WHITE, a))
-        text_block(d, 148 + off, y + 20, it, "bold", 36, W - 230, A(CREAM, a), max_lines=2)
-        y += 128
+        if a > 0:
+            off = int((1 - a) * 90)
+            panel(img, (36 + off, y, W - 36 + off, y + ih), 34, A(DARK, .70 * a), A(GOLD, .9 * a), 3)
+            check(d, 104 + off, y + ih / 2, 32, A(WHITE, a))
+            text_mid(d, 156 + off, y + ih / 2, it, "bold", fs, W - 232, A(CREAM, a), max_lines=2)
+        y += ih + gap
 
 
 def v_stat(img, d, v, t, S):
@@ -346,65 +369,94 @@ def v_stat(img, d, v, t, S):
         shown = f"{int(round(num * ease(t / 1.4)))}"
     except ValueError:
         shown = val
-    cx, cy = W / 2, 560
+    cx, cy = W / 2, 556
     pulse = 1 + .03 * math.sin(t * 4)
-    R = max(2, 215 * pulse * ease(t / .5))
-    d.ellipse((cx - R, cy - R, cx + R, cy + R), fill=A(GREEN_D, .72), outline=A(GOLD, .9), width=6)
-    f = font("black", 190)
-    full = shown + unit
+    R0 = 222
+    R = max(2, R0 * pulse * ease(t / .5))
+    d.ellipse((cx - R, cy - R, cx + R, cy + R), fill=A(GREEN_D, .78), outline=A(GOLD, .95), width=7)
+    long_unit = len(unit.strip()) > 2 and not unit.strip().startswith("%") or len(unit.strip()) > 3
+    full = shown if long_unit else shown + unit
+    size = 260 if not long_unit else 230
+    f = font("black", size)
     w = d.textlength(full, font=f)
-    if w > 215 * 1.7:
-        f = font("black", max(20, int(190 * 215 * 1.7 / w)))
+    if w > R0 * 1.72:
+        size = max(40, int(size * R0 * 1.72 / w))
+        f = font("black", size)
         w = d.textlength(full, font=f)
-    d.text((cx - w / 2 + 3, cy - 118 + 4), full, font=f, fill=(0, 0, 0, 120))
-    d.text((cx - w / 2, cy - 118), full, font=f, fill=A(GOLD))
+    ty = cy - size * (.62 if not long_unit else .85)
+    d.text((cx - w / 2 + 4, ty + 5), full, font=f, fill=(0, 0, 0, 130))
+    d.text((cx - w / 2, ty), full, font=f, fill=A(GOLD))
+    if long_unit:
+        usz = 56
+        fu = font("black", usz)
+        while d.textlength(unit.strip(), font=fu) > R0 * 1.75 and usz > 26:
+            usz -= 2
+            fu = font("black", usz)
+        uw = d.textlength(unit.strip(), font=fu)
+        d.text((cx - uw / 2, cy + 70), unit.strip(), font=fu, fill=A(WHITE))
     al = ease((t - .6) / .5)
     if v.get("label"):
-        panel(img, (50, 820, W - 50, 920), 26, A(DARK, .6 * al))
-        draw_rich(d, W / 2, 832, v["label"], "bold", 34, W - 140, A(CREAM, al), max_lines=2, shadow=False)
+        panel(img, (36, 800, W - 36, 892), 28, A(DARK, .66 * al), A(GOLD, .5 * al), 2)
+        sz, nl = block_h(d, v["label"].replace("**", ""), "bold", 42, W - 120, 2)
+        draw_rich(d, W / 2, 846 - nl * sz * 1.2 / 2, v["label"], "bold", 42, W - 120, A(CREAM, al), max_lines=2, lh=1.2, shadow=False)
 
 
 def v_compare(img, d, v, t, S):
-    cw = (W - 3 * 36) / 2
-    for side, x0, col in (("left", 36, RED), ("right", 36 * 2 + cw, LEAF)):
+    cw = (W - 3 * 30) / 2
+    H_ = ZB - ZT
+    for side, x0, col in (("left", 30, RED), ("right", 30 * 2 + cw, LEAF)):
         i = 0 if side == "left" else 1
-        a = r_(t, i, step=.5)
+        a = r_(t, i, step=.3)
         if a <= 0:
             continue
         data = v.get(side) or {}
-        y0 = 370 + int((1 - a) * 60)
-        panel(img, (x0, y0, x0 + cw, y0 + 500), 30, A(DARK, .66 * a), A(col, .95 * a), 4)
-        panel(img, (x0 + 14, y0 + 14, x0 + cw - 14, y0 + 84), 20, A(col, .9 * a))
-        text_c(d, x0 + cw / 2, y0 + 20, str(data.get("title", ""))[:22], "black", 32, A(WHITE, a))
-        yy = y0 + 104
-        for p in (data.get("points") or [])[:3]:
-            yy = text_block(d, x0 + 22, yy, "• " + str(p), "bold", 28, cw - 44, A(CREAM, a), max_lines=2) + 12
+        y0 = ZT + int((1 - a) * 60)
+        panel(img, (x0, y0, x0 + cw, y0 + H_), 34, A(DARK, .70 * a), A(col, .95 * a), 5)
+        panel(img, (x0 + 14, y0 + 14, x0 + cw - 14, y0 + 100), 24, A(col, .92 * a))
+        text_mid(d, x0 + 24, y0 + 57, str(data.get("title", ""))[:22], "black", 40, cw - 48, A(WHITE, a), max_lines=1)
+        pts = [str(p) for p in (data.get("points") or [])][:3]
+        top, bot = y0 + 118, y0 + H_ - (110 if data.get("metric") else 20)
+        fs = 42 if len(pts) <= 2 else 38
+        hs = [block_h(d, p, "bold", fs, cw - 74, 3)[1] * 1.2 * block_h(d, p, "bold", fs, cw - 74, 3)[0] for p in pts]
+        gap = 16
+        used = sum(hs) + gap * max(0, len(pts) - 1)
+        yy = top + max(0, (bot - top - used) / 2)
+        for p, h_ in zip(pts, hs):
+            d.ellipse((x0 + 24, yy + fs * .5 - 7, x0 + 38, yy + fs * .5 + 7), fill=A(GOLD, a))
+            text_block(d, x0 + 50, yy, p, "bold", fs, cw - 74, A(CREAM, a), max_lines=3, lh=1.2)
+            yy += h_ + gap
         if data.get("metric"):
-            text_c(d, x0 + cw / 2, y0 + 405, str(data["metric"])[:16], "black", 44, A(GOLD, a))
-    b = ease((t - .8) / .4)
+            panel(img, (x0 + 14, y0 + H_ - 92, x0 + cw - 14, y0 + H_ - 14), 22, A(col, .30 * a))
+            text_c(d, x0 + cw / 2, y0 + H_ - 90, str(data["metric"])[:16], "black", 52, A(GOLD, a))
+    b = ease((t - .7) / .4)
     if b > 0:
-        d.ellipse((W / 2 - 32 * b, 600 - 32 * b, W / 2 + 32 * b, 600 + 32 * b), fill=A(GOLD), outline=A(GREEN_D), width=3)
-        text_c(d, W / 2, 576, "VS", "black", 28, A(GREEN_D, b))
+        cyv = ZT + H_ / 2
+        d.ellipse((W / 2 - 28 * b, ZT + 70 - 28 * b, W / 2 + 28 * b, ZT + 70 + 28 * b), fill=A(GOLD), outline=A(GREEN_D), width=4)
+        text_c(d, W / 2, ZT + 70 - 18, "VS", "black", 26, A(GREEN_D, b))
 
 
 def v_steps(img, d, v, t, S):
     items = [str(x) for x in (v.get("items") or [])][:5]
     n = max(1, len(items))
     active = min(n - 1, int(max(0, t - .3) / max(.8, (S["dur"] - .6) / n)))
-    y, step = 380, 98
+    step = min(132, (ZB - ZT) / n)
+    ch = step - 16
+    fs = 42 if n <= 3 else (38 if n == 4 else 34)
+    y = ZT + ((ZB - ZT) - step * n) / 2
     for i in range(n - 1):
-        yy = y + i * step + 36
-        d.line((100, yy + 10, 100, yy + step - 10), fill=A(GOLD, .7 if i < active else .25), width=5)
+        yy = y + i * step + ch / 2
+        d.line((96, yy + 26, 96, yy + step - 26), fill=A(GOLD, .7 if i < active else .25), width=6)
     for i, it in enumerate(items):
         a = r_(t, i, step=.28)
         if a <= 0:
             continue
         yy = y + i * step
         on = i <= active
-        panel(img, (150, yy, W - 46, yy + 84), 24, A(DARK, (.7 if i == active else .5) * a), A(GOLD, .95 * a) if i == active else None, 3)
-        d.ellipse((66, yy + 10, 134, yy + 78), fill=A(GOLD if on else GREEN, a))
-        text_c(d, 100, yy + 6, dn(i + 1), "black", 44, A(GREEN_D if on else CREAM, a))
-        text_block(d, 168, yy + 12, it, "bold", 30, W - 240, A(CREAM, a), max_lines=2, lh=1.15)
+        panel(img, (150, yy, W - 36, yy + ch), 28, A(DARK, (.74 if i == active else .54) * a), A(GOLD, .95 * a) if i == active else None, 3)
+        rr = min(40, ch / 2 - 2)
+        d.ellipse((96 - rr, yy + ch / 2 - rr, 96 + rr, yy + ch / 2 + rr), fill=A(GOLD if on else GREEN, a))
+        text_c(d, 96, yy + ch / 2 - rr * 1.05, dn(i + 1), "black", int(rr * 1.25), A(GREEN_D if on else CREAM, a))
+        text_mid(d, 168, yy + ch / 2, it, "bold", fs, W - 222, A(CREAM, a), max_lines=2, lh=1.15)
 
 
 _PIMG = {}
@@ -592,8 +644,17 @@ def _run(cmd):
 
 
 def audio_len(p):
-    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(p)], capture_output=True, text=True)
-    return float(out.stdout.strip() or 0)
+    """Length in seconds. Uses ffprobe; when only ffmpeg exists (pip static build) it reads 'Duration:' from ffmpeg."""
+    import shutil
+    if shutil.which("ffprobe"):
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(p)], capture_output=True, text=True)
+        try:
+            return float(out.stdout.strip() or 0)
+        except ValueError:
+            pass
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(p)], capture_output=True, text=True)
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", r.stderr)
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 0.0
 
 
 async def _tts(text, voice, out):
@@ -630,9 +691,11 @@ GTTS_MODELS = [m for m in dict.fromkeys([os.getenv("GEMINI_TTS_MODEL") or "", "g
 GTTS_LEGACY = ["gemini-2.5-flash-preview-tts"]
 GTTS_STYLE = {
     "F": os.getenv("GEMINI_TTS_STYLE_F") or "warm, friendly and natural Marathi as spoken in Maharashtra, like a caring village agriculture tai talking to farmers; "
-                                           "relaxed medium pace, small natural pauses at commas, gentle smile in the voice, never robotic or newsreader-like",
+                                           "lively, slightly quick conversational pace like chatting with a neighbour, expressive intonation that rises on questions and stresses key words, "
+                                           "tiny natural pauses and breaths at commas, warm smile in the voice, never flat, never robotic or newsreader-like",
     "M": os.getenv("GEMINI_TTS_STYLE_M") or "calm, friendly and natural Marathi as spoken in Maharashtra, like an experienced farmer dada talking to fellow farmers; "
-                                           "relaxed medium pace, natural pauses at commas, sincere and conversational, never robotic or newsreader-like",
+                                           "lively, slightly quick conversational pace like chatting over tea, expressive intonation that rises on questions and stresses key words, "
+                                           "tiny natural pauses at commas, sincere and warm, never flat, never robotic or newsreader-like",
 }
 G_API = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -732,7 +795,7 @@ _TRIM = ("silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.04
 SARVAM_F = os.getenv("SARVAM_FEMALE") or "ritu"
 SARVAM_M = os.getenv("SARVAM_MALE") or "ashutosh"
 SARVAM_MODEL = os.getenv("SARVAM_MODEL") or "bulbul:v3"
-SARVAM_PACE = float(os.getenv("SARVAM_PACE") or 0.95)
+SARVAM_PACE = float(os.getenv("SARVAM_PACE") or 1.08)
 
 
 def sarvam_tts(text, gender, out):
@@ -809,9 +872,9 @@ def build_audio(spec, tmp, fake=False):
             secs = max(2.6, len(sc["say"].split()) / 2.3)
             _run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", f"{secs:.2f}", str(t1)])
         else:
-            _run(["ffmpeg", "-v", "error", "-y", "-i", str(raws[i]), "-af", _TRIM, "-ar", "44100", "-ac", "1", str(t1)])
+            _run(["ffmpeg", "-v", "error", "-y", "-i", str(raws[i]), "-af", _TRIM + f",atempo={VOICE_SPEED:.3f},highpass=f=70,equalizer=f=3000:t=q:w=1.2:g=2", "-ar", "44100", "-ac", "1", str(t1)])
         vl = audio_len(t1)
-        dur = max(2.6, vl + .15 + .40)
+        dur = max(2.4, vl + .12 + .26)
         _run(["ffmpeg", "-v", "error", "-y", "-i", str(t1), "-af", "adelay=150|150,apad", "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", str(wav)])
         durs.append(dur)
         vlens.append(vl)
@@ -1048,6 +1111,7 @@ RULES = """भाषा आणि नियम (आवाज नैसर्ग�
 - "say" = आवाजातील वाक्य; संपूर्ण वाक्य शुद्ध देवनागरीत. लहान वाक्ये (8-14 शब्द). बोलल्यासारखी सोपी, रोजची मराठी (पुस्तकी नको). 'तुम्ही' वापरा.
 - इंग्रजी शब्द देवनागरीत लिहा, लॅटिन अक्षरे नकोत: drip = ड्रिप, NPK = एनपीके, pH = पीएच, spray = स्प्रे, mulching = मल्चिंग, bharatNova = भारतनोव्हा. उत्पादनाचे नाव दिलेल्या कंसातील मराठी रूपात लिहा.
 - अंक आणि चिन्हे नकोत: संख्या शब्दांत लिहा (पन्नास टक्के, पंधरा ते वीस दिवस, दोन ते तीन मिली). '%', '50', '2-3' असे काहीही नको.
+- माणूस गप्पा मारल्यासारखे बोला: वाक्ये लहान-मोठी मिसळा, अधेमधे "बघा", "अहो", "खरं सांगायचं तर", "आणि हो," असे बोलीचे शब्द वापरा; प्रश्न विचारा; काही वाक्ये उद्गारवाचक (!) ठेवा. यादी वाचल्यासारखे / बातमीसारखे नको.
 - नैसर्गिक थांब्यासाठी वाक्यात स्वल्पविराम (,) वापरा आणि गरज असेल तेव्हा '...' वापरा. डॅश (-, —) किंवा कंसातील वाक्ये नकोत.
 - "voice" = "F" (स्त्री निवेदिका) किंवा "M" (पुरुष). संवाद शैली: M शेतकरी प्रश्न विचारतो / समस्या सांगतो, F उत्तर देते; आलटून पालटून.
 - "head" = स्क्रीनवरील छोटे शीर्षक (जास्तीत जास्त 8 शब्द, मराठी); 1-2 मुख्य शब्द **दोन तारकांमध्ये** लिहा. (हे फक्त स्क्रीनसाठी; येथे अंक/इंग्रजी चालेल.)
@@ -1057,7 +1121,7 @@ RULES = """भाषा आणि नियम (आवाज नैसर्ग�
 - कोणताही राजकीय, धार्मिक किंवा जातीय उल्लेख नको."""
 
 VIS_DOC = """VISUAL प्रकार (visual.type):
- {"type":"hook","icon":"sprout|drop|sun|wheat","text":"<पहिल्या सीनचा प्रश्न/समस्या, 18 शब्दांत>"}     (फक्त सीन 1 आणि गरज असल्यास मध्ये)
+ {"type":"hook","icon":"sprout|drop|sun|wheat","text":"<पहिल्या सीनचा प्रश्न/समस्या, 18 शब्दांत>"}     (सीन 1 साठी stat न वापरल्यास; आणि गरज असल्यास मध्ये)
  {"type":"points","items":["..","..",".."]}                                              (2-4 मुद्दे, प्रत्येक 8 शब्दांपर्यंत)
  {"type":"stat","value":"50","unit":"%","label":"पर्यंत पाण्याची बचत (पिकानुसार बदलते)"}     (फक्त खात्रीशीर, सर्वमान्य आकडा; value फक्त अंक)
  {"type":"compare","left":{"title":"पारंपरिक","points":["..","..",".."],"metric":"जास्त खर्च"},"right":{"title":"सुधारित","points":["..",".."],"metric":"कमी खर्च"}}
@@ -1067,8 +1131,9 @@ VIS_DOC = """VISUAL प्रकार (visual.type):
 REEL_PROMPT = """तुम्ही महाराष्ट्रातील शेतकऱ्यांना सोप्या मराठीत शिकवणारे अनुभवी कृषी तज्ज्ञ आहात आणि Instagram Reels चे स्क्रिप्ट लेखक आहात.
 पेज: bharatNova. आजचा विषय: {topic}
 सध्याचा हंगाम: {season}
-रील 60-80 सेकंदांचा, उभा (vertical), आकर्षक ग्राफिक्ससह. 11-14 सीन; सर्व "say" मिळून 150-175 शब्दांपेक्षा जास्त नकोत.
-रचना: सीन 1 = शेतकऱ्याच्या समस्येचा हुक (उदा. "तुमच्या पिकाला पाणी कमी पडतंय का?") -> समस्या -> मुख्य कल्पना -> टप्प्याटप्प्याने कसे करायचे -> फायदा/आकडा (असल्यास) -> सामान्य चूक -> एका ओळीत सार -> शेवटचा सीन outro (फॉलो / कमेंट).
+रील 45-60 सेकंदांचा, उभा (vertical), आकर्षक ग्राफिक्ससह. 10-12 सीन; सर्व "say" मिळून 130-155 शब्दांपेक्षा जास्त नकोत.
+सीन 1 चा visual नेहमी "stat" असावा: मोठ्या आकड्याचा हुक (उदा. value "50", unit "% पीक कमी!" किंवा "५ मिनिटांत" असे) आणि label मध्ये एक धक्का देणारी ओळ. आकडा सर्वमान्य/सुरक्षित असावा ("पर्यंत/साधारणपणे" label मध्ये); खात्री नसेल तर गणना (उदा. "3 चुका", "5 टप्पे") वापरा. सीन 1 चे "say" त्याच आकड्याचा उल्लेख करून (शब्दांत) सुरू होऊ दे.
+रचना: सीन 1 = आकड्याचा हुक + शेतकऱ्याच्या समस्येचा प्रश्न (उदा. "तुमच्या पिकाला पाणी कमी पडतंय का?") -> समस्या -> मुख्य कल्पना -> टप्प्याटप्प्याने कसे करायचे -> फायदा/आकडा (असल्यास) -> सामान्य चूक -> एका ओळीत सार -> शेवटचा सीन outro (फॉलो / कमेंट).
 हुक मध्येच "शेवटी एक चूक सांगतो जी बरेच जण करतात" असे वाक्य घाला आणि शेवटी उत्तर द्या.
 {rules}
 
@@ -1147,7 +1212,7 @@ def validate_reel(spec, ad=False):
         s["visual"] = v
     if words > 215:
         raise ValueError(f"too long: {words} words")
-    sc[0]["visual"] = sc[0]["visual"] if sc[0]["visual"]["type"] == "hook" else {"type": "hook", "icon": "sprout", "text": sc[0]["head"].replace("**", "")}
+    sc[0]["visual"] = sc[0]["visual"] if sc[0]["visual"]["type"] in ("hook", "stat") else {"type": "hook", "icon": "sprout", "text": sc[0]["head"].replace("**", "")}
     sc[-1]["visual"] = sc[-1]["visual"] if sc[-1]["visual"]["type"] == "outro" else {"type": "outro", "ask": spec.get("comment_q", "")}
     if ad and not any(s["visual"]["type"] == "product" for s in sc):
         raise ValueError("ad reel has no product scene")
@@ -1188,7 +1253,7 @@ SAMPLE_REEL = {
     "title": "ठिबक सिंचन", "tag": "पाणी व्यवस्थापन",
     "scenes": [
         {"say": "शेतकरी मित्रांनो, उन्हाळ्यात विहिरीचं पाणी कमी पडतं का?", "voice": "M", "head": "पाणी **कमी** पडतंय?", "bg": "water",
-         "visual": {"type": "hook", "icon": "drop", "text": "कमी पाण्यात जास्त क्षेत्र भिजवायचंय?"}},
+         "visual": {"type": "stat", "value": "50", "unit": "% पाणी वाया!", "label": "पाटपाण्यात साधारणपणे वाया जातं"}},
         {"say": "मग ठिबक सिंचन तुमच्यासाठी आहे. यात पाणी थेट झाडाच्या मुळाजवळ थेंब थेंब दिलं जातं.", "voice": "F", "head": "**ठिबक** सिंचन म्हणजे काय?", "bg": "crops",
          "visual": {"type": "steps", "items": ["टाकी किंवा विहीर", "फिल्टर", "मुख्य पाईपलाईन", "ड्रिपर: थेट मुळाशी"]}},
         {"say": "पाटाच्या पाण्यात बरंच पाणी वाया जातं आणि तणही वाढतं.", "voice": "M", "head": "पाट विरुद्ध **ठिबक**", "bg": "farm",
