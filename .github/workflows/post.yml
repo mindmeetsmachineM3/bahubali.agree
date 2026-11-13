@@ -52,6 +52,10 @@ jobs:
       VOICE_MALE: ${{ vars.VOICE_MALE }}
       VOICE_RATE: ${{ vars.VOICE_RATE }}
       SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+      ELEVEN_API_KEY: ${{ secrets.ELEVEN_API_KEY }}
+      ELEVEN_VOICE_F: ${{ secrets.ELEVEN_VOICE_F }}
+      ELEVEN_VOICE_M: ${{ secrets.ELEVEN_VOICE_M }}
+      ELEVEN_VOICE: ${{ secrets.ELEVEN_VOICE }}
       VOICE_PROVIDER: ${{ vars.VOICE_PROVIDER }}
       SARVAM_FEMALE: ${{ vars.SARVAM_FEMALE }}
       SARVAM_MALE: ${{ vars.SARVAM_MALE }}
