@@ -826,23 +826,41 @@ def sarvam_tts(text, gender, out):
 
 
 def eleven_tts(text, gender, out):
+    """Your own / cloned voice from ElevenLabs. ELEVEN_VOICE_F + ELEVEN_VOICE_M (or one ELEVEN_VOICE for both)."""
     import requests
-    vid = os.environ["ELEVEN_VOICE_M"] if gender == "M" else os.environ["ELEVEN_VOICE_F"]
-    r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=mp3_44100_128",
-                      headers={"xi-api-key": os.environ["ELEVEN_API_KEY"]},
-                      json={"text": text, "model_id": os.getenv("ELEVEN_MODEL") or "eleven_v3"}, timeout=90)
-    r.raise_for_status()
-    Path(out).write_bytes(r.content)
-    return "elevenlabs"
+    vid = (os.getenv("ELEVEN_VOICE_M") if gender == "M" else os.getenv("ELEVEN_VOICE_F")) or os.getenv("ELEVEN_VOICE")
+    if not vid:
+        raise RuntimeError("ELEVEN_VOICE_F / ELEVEN_VOICE_M (voice id) set nahi")
+    model = os.getenv("ELEVEN_MODEL") or "eleven_multilingual_v2"
+    body = {"text": text, "model_id": model}
+    if model != "eleven_v3":                                            # v3 takes no voice_settings the same way
+        body["voice_settings"] = {"stability": float(os.getenv("ELEVEN_STABILITY") or 0.4), "similarity_boost": 0.85,
+                                  "style": 0.35, "use_speaker_boost": True}
+    err = ""
+    for attempt in range(3):
+        r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=mp3_44100_128",
+                          headers={"xi-api-key": os.environ["ELEVEN_API_KEY"]}, json=body, timeout=90)
+        if r.ok:
+            Path(out).write_bytes(r.content)
+            return "elevenlabs:" + vid[:6]
+        err = f"{r.status_code}: {r.text[:250]}"
+        print(f"ElevenLabs {err}", file=sys.stderr)
+        if r.status_code in (429, 500, 502, 503):
+            time.sleep(5 * (attempt + 1))
+            continue
+        break
+    raise RuntimeError("ElevenLabs " + err)
 
 
 PROVIDERS = {"sarvam": (sarvam_tts, "wav", 0.5), "elevenlabs": (eleven_tts, "mp3", 0.5), "gemini": (gemini_tts, "wav", 3.0), "edge": (speak_edge, "mp3", 0)}
 
 
 def provider_chain():
-    first = (os.getenv("VOICE_PROVIDER") or os.getenv("TTS_PROVIDER") or ("sarvam" if os.getenv("SARVAM_API_KEY") else "gemini")).lower()
+    own = os.getenv("ELEVEN_API_KEY") and (os.getenv("ELEVEN_VOICE") or os.getenv("ELEVEN_VOICE_F") or os.getenv("ELEVEN_VOICE_M"))
+    default = "elevenlabs" if own else ("sarvam" if os.getenv("SARVAM_API_KEY") else "gemini")
+    first = (os.getenv("VOICE_PROVIDER") or os.getenv("TTS_PROVIDER") or default).lower()
     first = first if first in PROVIDERS else "gemini"
-    return [first] + [p for p in ("gemini", "edge") if p != first]
+    return [first] + [p for p in ("sarvam", "gemini", "edge") if p != first and (p != "sarvam" or os.getenv("SARVAM_API_KEY"))]
 
 
 def _scene_raws(spec, tmp):
