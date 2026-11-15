@@ -43,8 +43,11 @@ ASSETS = BASE / "assets"
 HANDLE = (os.getenv("IG_HANDLE") or "bharatnova").lstrip("@")
 BRAND = os.getenv("BRAND_NAME") or "bharatNova"
 BRAND_MARK = (os.getenv("BRAND_MARK") or "bN")[:3]
-VOICE_F = os.getenv("VOICE_FEMALE") or "mr-IN-AarohiNeural"
-VOICE_M = os.getenv("VOICE_MALE") or "mr-IN-ManoharNeural"
+# Hindi voice speaking the Marathi text: set VOICE_LANG=hi-IN (Sarvam + edge then use Hindi voices; ElevenLabs: pick a Hindi voice id)
+VOICE_LANG = (os.getenv("VOICE_LANG") or "mr-IN").strip()
+_HI = VOICE_LANG.lower().startswith("hi")
+VOICE_F = os.getenv("VOICE_FEMALE") or ("hi-IN-SwaraNeural" if _HI else "mr-IN-AarohiNeural")
+VOICE_M = os.getenv("VOICE_MALE") or ("hi-IN-MadhurNeural" if _HI else "mr-IN-ManoharNeural")
 VOICE_RATE = os.getenv("VOICE_RATE") or "+8%"
 VOICE_SPEED = float(os.getenv("VOICE_SPEED") or 1.08)      # extra tempo applied to every clip (pitch preserved)
 W, H, FPS = 720, 1280, 30          # reel
@@ -802,7 +805,7 @@ def sarvam_tts(text, gender, out):
     import base64
     import requests
     speaker = SARVAM_M if gender == "M" else SARVAM_F
-    body = {"text": text, "target_language_code": "mr-IN", "speaker": speaker, "model": SARVAM_MODEL,
+    body = {"text": text, "target_language_code": VOICE_LANG, "speaker": speaker, "model": SARVAM_MODEL,
             "pace": SARVAM_PACE, "speech_sample_rate": 24000}
     extras = {"temperature": 0.6, "enable_preprocessing": True}          # not every model version accepts these: dropped on a 400/422
     use_extras, err = True, ""
