@@ -692,7 +692,7 @@ def speak_edge(text, gender, out):
 
 # ---- Gemini TTS (free tier): much more natural than edge-tts. Natural-language style prompt controls the acting.
 TTS = (os.getenv("TTS_PROVIDER") or "gemini").lower()               # gemini | edge
-GTTS_VOICE = {"F": os.getenv("GEMINI_TTS_VOICE_F") or "Sulafat", "M": os.getenv("GEMINI_TTS_VOICE_M") or "Charon"}
+GTTS_VOICE = {"F": os.getenv("GEMINI_TTS_VOICE_F") or "Sulafat", "M": os.getenv("GEMINI_TTS_VOICE_M") or "Charon"}      # female default Sulafat; try Kore, Leda, Aoede via GEMINI_TTS_VOICE_F
 GTTS_SAFE = {"F": "Kore", "M": "Charon"}                            # used if the chosen voice name is rejected
 GTTS_MODELS = [m for m in dict.fromkeys([os.getenv("GEMINI_TTS_MODEL") or "", "gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]) if m]
 GTTS_LEGACY = ["gemini-2.5-flash-preview-tts"]
@@ -865,10 +865,10 @@ PROVIDERS = {"sarvam": (sarvam_tts, "wav", 0.5), "elevenlabs": (eleven_tts, "mp3
 
 def provider_chain():
     own = os.getenv("ELEVEN_API_KEY") and (os.getenv("ELEVEN_VOICE") or os.getenv("ELEVEN_VOICE_F") or os.getenv("ELEVEN_VOICE_M"))
-    default = "elevenlabs" if own else ("sarvam" if os.getenv("SARVAM_API_KEY") else "gemini")
+    default = "gemini"                                    # Gemini TTS: male Charon + female (Sulafat) by default; VOICE_PROVIDER=sarvam/elevenlabs/edge overrides
     first = (os.getenv("VOICE_PROVIDER") or os.getenv("TTS_PROVIDER") or default).lower()
     first = first if first in PROVIDERS else "gemini"
-    return [first] + [p for p in ("sarvam", "gemini", "edge") if p != first and (p != "sarvam" or os.getenv("SARVAM_API_KEY"))]
+    return [first] + [p for p in ("gemini", "sarvam", "edge") if p != first and (p != "sarvam" or os.getenv("SARVAM_API_KEY"))]
 
 
 def _scene_raws(spec, tmp):
