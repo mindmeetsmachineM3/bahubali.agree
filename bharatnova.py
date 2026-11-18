@@ -36,7 +36,9 @@ try:
 except Exception:
     pass
 
-VERSION = "bharatnova v2 (Marathi, Sarvam/Gemini/edge voices, Devanagari voice text, Ken Burns zoom)"
+CONTENT_LANG = (os.getenv("CONTENT_LANG") or "hinglish").strip().lower()      # hinglish (default) | marathi
+HING = CONTENT_LANG.startswith("h")
+VERSION = f"bharatnova v3 ({'Hinglish' if HING else 'Marathi'}, Sarvam/Gemini/edge voices, Ken Burns zoom)"
 BASE = Path(__file__).parent
 OUT_DIR = BASE / "output"
 ASSETS = BASE / "assets"
@@ -44,7 +46,9 @@ HANDLE = (os.getenv("IG_HANDLE") or "bharatnova").lstrip("@")
 BRAND = os.getenv("BRAND_NAME") or "bharatNova"
 BRAND_MARK = (os.getenv("BRAND_MARK") or "bN")[:3]
 # Hindi voice speaking the Marathi text: set VOICE_LANG=hi-IN (Sarvam + edge then use Hindi voices; ElevenLabs: pick a Hindi voice id)
-VOICE_LANG = (os.getenv("VOICE_LANG") or "mr-IN").strip()
+VOICE_LANG = (os.getenv("VOICE_LANG") or ("hi-IN" if HING else "mr-IN")).strip()
+if HING and VOICE_LANG.lower().startswith("mr"):
+    VOICE_LANG = "hi-IN"                                  # Hinglish is spoken by Hindi voices
 _HI = VOICE_LANG.lower().startswith("hi")
 VOICE_F = os.getenv("VOICE_FEMALE") or ("hi-IN-SwaraNeural" if _HI else "mr-IN-AarohiNeural")
 VOICE_M = os.getenv("VOICE_MALE") or ("hi-IN-MadhurNeural" if _HI else "mr-IN-ManoharNeural")
@@ -692,11 +696,12 @@ GTTS_VOICE = {"F": os.getenv("GEMINI_TTS_VOICE_F") or "Sulafat", "M": os.getenv(
 GTTS_SAFE = {"F": "Kore", "M": "Charon"}                            # used if the chosen voice name is rejected
 GTTS_MODELS = [m for m in dict.fromkeys([os.getenv("GEMINI_TTS_MODEL") or "", "gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]) if m]
 GTTS_LEGACY = ["gemini-2.5-flash-preview-tts"]
+_LANGSTYLE = "natural Hinglish (Hindi and English mixed, as young Indian agri creators talk on Instagram)" if HING else "natural Marathi as spoken in Maharashtra"
 GTTS_STYLE = {
-    "F": os.getenv("GEMINI_TTS_STYLE_F") or "warm, friendly and natural Marathi as spoken in Maharashtra, like a caring village agriculture tai talking to farmers; "
+    "F": os.getenv("GEMINI_TTS_STYLE_F") or "warm, friendly and " + _LANGSTYLE + ", like a caring village agriculture tai talking to farmers; "
                                            "lively, slightly quick conversational pace like chatting with a neighbour, expressive intonation that rises on questions and stresses key words, "
                                            "tiny natural pauses and breaths at commas, warm smile in the voice, never flat, never robotic or newsreader-like",
-    "M": os.getenv("GEMINI_TTS_STYLE_M") or "calm, friendly and natural Marathi as spoken in Maharashtra, like an experienced farmer dada talking to fellow farmers; "
+    "M": os.getenv("GEMINI_TTS_STYLE_M") or "calm, friendly and " + _LANGSTYLE + ", like an experienced farmer dada talking to fellow farmers; "
                                            "lively, slightly quick conversational pace like chatting over tea, expressive intonation that rises on questions and stresses key words, "
                                            "tiny natural pauses at commas, sincere and warm, never flat, never robotic or newsreader-like",
 }
@@ -1092,6 +1097,8 @@ def plan_topic(state):
 आधी वापरलेले विषय (पुन्हा नको): {used[-60:]}
 या विभागातील 8 नवीन, व्यावहारिक, अचूक आणि महाराष्ट्राच्या शेतकऱ्याला उपयोगी विषय सुचवा. सरकारी योजनांचे आकडे, बाजारभाव किंवा औषधांचे डोस असलेले विषय नको.
 फक्त JSON: {{"topics":["...", "..."]}}"""
+    if HING:
+        prompt += "\nTopics must be written in Hinglish (Roman letters), for Indian farmers."
     try:
         for t in clean_json(core.call_gemini(prompt)).get("topics", []):
             if isinstance(t, str) and t.strip() and not too_similar(t, used):
@@ -1218,10 +1225,16 @@ def validate_reel(spec, ad=False):
     words = 0
     for i, s in enumerate(sc):
         s["say"] = str(s.get("say", "")).strip()
-        if not s["say"] or not _dev(s["say"]):
-            raise ValueError(f"scene {i}: voice-over must be Marathi (Devanagari)")
-        if re.search(r"[A-Za-z0-9०-९%]", s["say"]):
-            raise ValueError(f"scene {i}: voice-over must have no Latin letters, digits or % (write English words and numbers in Devanagari words)")
+        if HING:
+            if not s["say"] or _dev(s["say"]) or not re.search(r"[A-Za-z]", s["say"]):
+                raise ValueError(f"scene {i}: voice-over must be Hinglish in Roman letters (no Devanagari)")
+            if "%" in s["say"]:
+                raise ValueError(f"scene {i}: write 'percent' in words, no % sign")
+        else:
+            if not s["say"] or not _dev(s["say"]):
+                raise ValueError(f"scene {i}: voice-over must be Marathi (Devanagari)")
+            if re.search(r"[A-Za-z0-9०-९%]", s["say"]):
+                raise ValueError(f"scene {i}: voice-over must have no Latin letters, digits or % (write English words and numbers in Devanagari words)")
         if len(s["say"].split()) > 20:
             raise ValueError(f"scene {i}: sentence too long for a natural voice ({len(s['say'].split())} words)")
         words += len(s["say"].split())
@@ -1245,16 +1258,37 @@ def validate_slides(spec, lo, hi):
     if not lo <= len(sl) <= hi:
         raise ValueError(f"bad slide count {len(sl)}")
     for s in sl:
-        if not _dev(s.get("head", "")):
+        if HING and _dev(s.get("head", "")):
+            raise ValueError("slide text must be Hinglish in Roman letters")
+        if not HING and not _dev(s.get("head", "")):
             raise ValueError("slide text must be Marathi")
         s["head"], s["body"] = str(s.get("head", "")), str(s.get("body", ""))
     sl[0]["type"] = "cover" if sl[0].get("type") != "product" else "product"
     return spec
 
 
+HRULES = """LANGUAGE AND RULES (most important so the voice sounds natural):
+- "say" = the spoken sentence, in natural HINGLISH written in ROMAN letters (Hindi + English mixed the way a young Indian creator talks, e.g. "Yaar, garmi mein paani kam padta hai na? Drip irrigation try karo!"). NEVER Devanagari. Short sentences (8-14 words). Simple everyday words, 'aap' for the viewer.
+- Write numbers and percent in words in "say" (pachaas percent, do se teen ml). No % sign.
+- Sound like a person chatting: mix short and long sentences, use fillers like "dekho", "yaar", "sach bolu toh", "aur haan,", ask questions, some exclamations. Not like a news reader or a list.
+- Use commas for natural pauses and '...' when needed. No dashes or brackets in "say".
+- "voice" = "F" or "M"; M farmer asks / states a problem, F answers; alternate.
+- "head" = short on-screen title (max 8 words, Hinglish in Roman letters); wrap 1-2 key words in **double asterisks**. Digits are fine on screen.
+- "bg" = one English word: crops, soil, water, farm, fruits, vegetables, tractor, sunrise, product.
+- All facts must be accurate. Only common, safe numbers with "approximately/up to". No fake stats, government scheme figures or market prices. No pesticide/chemical fertiliser doses or names; say "apne nazdiki Krishi Vigyan Kendra / krishi adhikari se salah lein" if needed.
+- No political, religious or caste mentions."""
+
+HING_OVERRIDE = """
+
+### LANGUAGE OVERRIDE (highest priority, replaces every language instruction above)
+Write EVERYTHING in HINGLISH using ROMAN letters only (Hindi + English mix, how Indian creators talk): "say", "head", "body", "tag", "title", "caption", "comment_q", "ask", slide text, points, steps, labels, benefits, hashtags. Do NOT use Devanagari or Marathi anywhere. Keep the same JSON structure and all other rules. Write numbers/percent in words inside "say". Hashtags in Roman letters (e.g. #kisan #kheti #farmingtips #bharatnova)."""
+
+
 def gen(prompt, validator, tries=3):
     import core
     last = None
+    if HING:
+        prompt = prompt.replace(RULES, HRULES) + HING_OVERRIDE
     for k in range(tries):
         try:
             return validator(clean_json(core.call_gemini(prompt)))
@@ -1327,14 +1361,14 @@ def build_caption(spec, kind):
     parts = [cap]
     cq = str(spec.get("comment_q") or "").strip()
     if cq:
-        parts.append(f"{cq} कमेंटमध्ये सांगा 👇")
+        parts.append(f"{cq} Comment mein batayein 👇" if HING else f"{cq} कमेंटमध्ये सांगा 👇")
     if kind.startswith("reel_ad") or kind.startswith("product"):
-        parts.append("अधिक माहितीसाठी प्रोफाइलवरील लिंक पहा. वापरण्याआधी लेबलवरील सूचना वाचा.")
-    parts.append("सेव्ह करा 🔖 शेअर करा 🤝 आणि रोजच्या शेती ज्ञानासाठी फॉलो करा 🌾")
+        parts.append("Zyada jaankari ke liye profile ka link dekhein. Use karne se pehle label ki suchna zaroor padhein." if HING else "अधिक माहितीसाठी प्रोफाइलवरील लिंक पहा. वापरण्याआधी लेबलवरील सूचना वाचा.")
+    parts.append("Save karein 🔖 Share karein 🤝 aur roz kheti ke gyaan ke liye follow karein 🌾" if HING else "सेव्ह करा 🔖 शेअर करा 🤝 आणि रोजच्या शेती ज्ञानासाठी फॉलो करा 🌾")
     parts.append(f"@{HANDLE}")
     tags = [t.lower() for t in (spec.get("hashtags") or []) if isinstance(t, str) and t.startswith("#")]
     tags = [t for t in tags if t not in BIG_TAGS]
-    allt = list(dict.fromkeys(tags[:8] + ["#शेतकरी", "#शेतीज्ञान", "#marathifarmer", "#bharatnova"]))[:12]
+    allt = list(dict.fromkeys(tags[:8] + (["#kisan", "#kheti", "#farmingtips", "#bharatnova"] if HING else ["#शेतकरी", "#शेतीज्ञान", "#marathifarmer", "#bharatnova"])))[:12]
     parts.append(" ".join(allt))
     return "\n\n".join(p for p in parts if p)[:2200]
 
