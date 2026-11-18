@@ -880,7 +880,7 @@ def _scene_raws(spec, tmp):
         try:
             for i, sc in enumerate(spec["scenes"]):
                 raw = tmp / f"r{i:02d}.{ext}"
-                names.add(fn(tts_text(sc["say"]), sc.get("voice", "F"), raw))
+                names.add(fn(tts_text(sc.get("vsay") or sc["say"]), sc.get("voice", "F"), raw))
                 raws.append(raw)
                 time.sleep(gap)
             return raws, ", ".join(sorted(names))
@@ -1284,6 +1284,31 @@ HING_OVERRIDE = """
 Write EVERYTHING in HINGLISH using ROMAN letters only (Hindi + English mix, how Indian creators talk): "say", "head", "body", "tag", "title", "caption", "comment_q", "ask", slide text, points, steps, labels, benefits, hashtags. Do NOT use Devanagari or Marathi anywhere. Keep the same JSON structure and all other rules. Write numbers/percent in words inside "say". Hashtags in Roman letters (e.g. #kisan #kheti #farmingtips #bharatnova)."""
 
 
+def add_voice_script(spec):
+    """Hindi voices read Roman Hinglish with a foreign accent. The VOICE gets the same sentences in Devanagari (Hindi, English words written
+    in Devanagari); the screen keeps the Roman text. Set VOICE_SCRIPT=roman to turn this off."""
+    if not HING or (os.getenv("VOICE_SCRIPT") or "devanagari").lower().startswith("r"):
+        return spec
+    import core
+    lines = [s["say"] for s in spec["scenes"]]
+    prompt = ("Convert each Hinglish line (Roman letters) into natural spoken Hindi written in DEVANAGARI so a Hindi voice pronounces it perfectly. "
+              "Keep the meaning, the casual tone, fillers (yaar -> यार, dekho -> देखो) and punctuation (commas, '...', ?, !). Write English words in Devanagari "
+              "(drip -> ड्रिप, pH -> पीएच, NPK -> एनपीके, bharatNova -> भारतनोवा, time -> टाइम). Spell numbers as Hindi words. Do not translate to formal/Sanskritised Hindi, "
+              "do not add or drop sentences.\nReturn ONLY JSON {\"lines\":[...]} with exactly %d strings.\nLINES: %s" % (len(lines), json.dumps(lines, ensure_ascii=False)))
+    for _ in range(3):
+        try:
+            out = clean_json(core.call_gemini(prompt)).get("lines", [])
+            if len(out) == len(lines) and all(_dev(x) for x in out):
+                for sc, v in zip(spec["scenes"], out):
+                    sc["vsay"] = str(v).strip()
+                print("voice script: Devanagari Hindi", file=sys.stderr)
+                return spec
+        except Exception as ex:
+            print("voice script conversion failed:", str(ex)[:150], file=sys.stderr)
+    print("WARNING: voice script conversion failed, voice will read Roman text", file=sys.stderr)
+    return spec
+
+
 def gen(prompt, validator, tries=3):
     import core
     last = None
@@ -1422,6 +1447,7 @@ def main():
             spec = gen(AD_PROMPT.format(product=pj, season=season, rules=RULES, vis=VIS_DOC), lambda s: validate_reel(s, ad=True))
         else:
             spec = gen(REEL_PROMPT.format(topic=topic, season=season, rules=RULES, vis=VIS_DOC, recent=recent[-30:]), validate_reel)
+        add_voice_script(spec)
         if product:                       # make sure the real product photo/name is on screen, whatever the AI wrote
             for s in spec["scenes"]:
                 if s["visual"]["type"] == "product":
