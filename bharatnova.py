@@ -52,8 +52,8 @@ if HING and VOICE_LANG.lower().startswith("mr"):
 _HI = VOICE_LANG.lower().startswith("hi")
 VOICE_F = os.getenv("VOICE_FEMALE") or ("hi-IN-SwaraNeural" if _HI else "mr-IN-AarohiNeural")
 VOICE_M = os.getenv("VOICE_MALE") or ("hi-IN-MadhurNeural" if _HI else "mr-IN-ManoharNeural")
-VOICE_RATE = os.getenv("VOICE_RATE") or "+8%"
-VOICE_SPEED = float(os.getenv("VOICE_SPEED") or 1.08)      # extra tempo applied to every clip (pitch preserved)
+VOICE_RATE = os.getenv("VOICE_RATE") or "-6%"
+VOICE_SPEED = float(os.getenv("VOICE_SPEED") or 0.97)      # extra tempo applied to every clip (pitch preserved)
 W, H, FPS = 720, 1280, 30          # reel
 PW, PH = 1080, 1350                # post / carousel (4:5)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -699,10 +699,10 @@ GTTS_LEGACY = ["gemini-2.5-flash-preview-tts"]
 _LANGSTYLE = "natural Hinglish (Hindi and English mixed, as young Indian agri creators talk on Instagram)" if HING else "natural Marathi as spoken in Maharashtra"
 GTTS_STYLE = {
     "F": os.getenv("GEMINI_TTS_STYLE_F") or "warm, friendly and " + _LANGSTYLE + ", like a caring village agriculture tai talking to farmers; "
-                                           "lively, slightly quick conversational pace like chatting with a neighbour, expressive intonation that rises on questions and stresses key words, "
+                                           "lively but calm, clear, medium conversational pace (not rushed) like chatting with a neighbour, expressive intonation that rises on questions and stresses key words, "
                                            "tiny natural pauses and breaths at commas, warm smile in the voice, never flat, never robotic or newsreader-like",
     "M": os.getenv("GEMINI_TTS_STYLE_M") or "calm, friendly and " + _LANGSTYLE + ", like an experienced farmer dada talking to fellow farmers; "
-                                           "lively, slightly quick conversational pace like chatting over tea, expressive intonation that rises on questions and stresses key words, "
+                                           "lively but calm, clear, medium conversational pace (not rushed) like chatting over tea, expressive intonation that rises on questions and stresses key words, "
                                            "tiny natural pauses at commas, sincere and warm, never flat, never robotic or newsreader-like",
 }
 G_API = "https://generativelanguage.googleapis.com/v1beta"
@@ -803,7 +803,7 @@ _TRIM = ("silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.04
 SARVAM_F = os.getenv("SARVAM_FEMALE") or "ritu"
 SARVAM_M = os.getenv("SARVAM_MALE") or "ashutosh"
 SARVAM_MODEL = os.getenv("SARVAM_MODEL") or "bulbul:v3"
-SARVAM_PACE = float(os.getenv("SARVAM_PACE") or 1.08)
+SARVAM_PACE = float(os.getenv("SARVAM_PACE") or 0.92)
 
 
 def sarvam_tts(text, gender, out):
