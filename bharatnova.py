@@ -868,7 +868,8 @@ def provider_chain():
     default = "gemini"                                    # Gemini TTS: male Charon + female (Sulafat) by default; VOICE_PROVIDER=sarvam/elevenlabs/edge overrides
     first = (os.getenv("VOICE_PROVIDER") or os.getenv("TTS_PROVIDER") or default).lower()
     first = first if first in PROVIDERS else "gemini"
-    return [first] + [p for p in ("gemini", "sarvam", "edge") if p != first and (p != "sarvam" or os.getenv("SARVAM_API_KEY"))]
+    # Sarvam is used ONLY when you choose it with VOICE_PROVIDER=sarvam. Default chain: Google Gemini TTS, then Edge as a safety net.
+    return [first] + [p for p in ("gemini", "edge") if p != first]
 
 
 def _scene_raws(spec, tmp):
