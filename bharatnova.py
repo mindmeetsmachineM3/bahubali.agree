@@ -1219,6 +1219,27 @@ def _dev(s):
     return bool(re.search(r"[\u0900-\u097F]", str(s)))
 
 
+# ---- speaker gender: first-person verbs must match the voice (F: bataungi / karti hoon, M: bataunga / karta hoon)
+_G_ROMAN_F = [(r"\b(\w+?)unga\b", r"\1ungi"), (r"\b(\w+?)ta (hoon|hun|hu)\b", r"\1ti \2"), (r"\braha (hoon|hun|hu)\b", r"rahi \1"),
+              (r"\bchuka (hoon|hun|hu)\b", r"chuki \1")]
+_G_ROMAN_M = [(r"\b(\w+?)ungi\b", r"\1unga"), (r"\b(\w+?)ti (hoon|hun|hu)\b", r"\1ta \2"), (r"\brahi (hoon|hun|hu)\b", r"raha \1"),
+              (r"\bchuki (hoon|hun|hu)\b", r"chuka \1")]
+_G_DEV_F = [("ूँगा", "ूँगी"), ("ूंगा", "ूंगी"), ("ऊँगा", "ऊँगी"), ("ऊंगा", "ऊंगी"), ("ता हूँ", "ती हूँ"), ("ता हूं", "ती हूं"), ("रहा हूँ", "रही हूँ"), ("रहा हूं", "रही हूं"),
+            ("चुका हूँ", "चुकी हूँ"), ("चुका हूं", "चुकी हूं")]
+_G_DEV_M = [(b, a) for a, b in _G_DEV_F]
+
+
+def fix_gender(text, voice):
+    """make the speaker's own verbs agree with the voice: a female narrator says 'bataungi', not 'bataunga'"""
+    t = str(text)
+    for a, b in (_G_ROMAN_F if voice == "F" else _G_ROMAN_M):
+        t = re.sub(a, b, t, flags=re.I)
+    for a, b in (_G_DEV_F if voice == "F" else _G_DEV_M):
+        t = t.replace(a, b)
+    return t
+
+
+
 def validate_reel(spec, ad=False):
     sc = spec.get("scenes") or []
     if not 4 <= len(sc) <= 18:
@@ -1240,6 +1261,7 @@ def validate_reel(spec, ad=False):
             raise ValueError(f"scene {i}: sentence too long for a natural voice ({len(s['say'].split())} words)")
         words += len(s["say"].split())
         s["voice"] = "M" if str(s.get("voice", "F")).upper().startswith("M") else "F"
+        s["say"] = fix_gender(s["say"], s["voice"])
         s["head"] = str(s.get("head") or "")
         v = s.get("visual") or {}
         if v.get("type") not in VIS:
@@ -1274,6 +1296,7 @@ HRULES = """LANGUAGE AND RULES (most important so the voice sounds natural):
 - Sound like a person chatting: mix short and long sentences, use fillers like "dekho", "yaar", "sach bolu toh", "aur haan,", ask questions, some exclamations. Not like a news reader or a list.
 - Use commas for natural pauses and '...' when needed. No dashes or brackets in "say".
 - "voice" = "F" or "M"; M farmer asks / states a problem, F answers; alternate.
+- GRAMMAR MUST MATCH THE SPEAKER: when "voice" is "F" the narrator is a woman, so her own verbs are feminine ("bataungi", "batati hoon", "karungi", "dikhaungi", "samjhati hoon"); when "voice" is "M" use masculine ("bataunga", "batata hoon"). Check every first-person sentence.
 - "head" = short on-screen title (max 8 words, Hinglish in Roman letters); wrap 1-2 key words in **double asterisks**. Digits are fine on screen.
 - "bg" = one English word: crops, soil, water, farm, fruits, vegetables, tractor, sunrise, product.
 - All facts must be accurate. Only common, safe numbers with "approximately/up to". No fake stats, government scheme figures or market prices. No pesticide/chemical fertiliser doses or names; say "apne nazdiki Krishi Vigyan Kendra / krishi adhikari se salah lein" if needed.
@@ -1301,7 +1324,7 @@ def add_voice_script(spec):
             out = clean_json(core.call_gemini(prompt)).get("lines", [])
             if len(out) == len(lines) and all(_dev(x) for x in out):
                 for sc, v in zip(spec["scenes"], out):
-                    sc["vsay"] = str(v).strip()
+                    sc["vsay"] = fix_gender(str(v).strip(), sc.get("voice", "F"))
                 print("voice script: Devanagari Hindi", file=sys.stderr)
                 return spec
         except Exception as ex:
